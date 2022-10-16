@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: smokeping
+  name: smokeping
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: smokeping
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: smokeping
+    spec:
+      containers:
+      - env:
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        - name: TZ
+          value: America/Chicago
+        image: lscr.io/linuxserver/smokeping:latest
+        imagePullPolicy: Always
+        name: smokeping
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: smokeping-data
+          # Inject a post-setup step to add more targets
+        - mountPath: /etc/cont-init.d/50-more-targets
+          name: smokeping-config-custom
+          subPath: more-targets.sh
+      restartPolicy: Always
+      volumes:
+        - name: smokeping-data
+          persistentVolumeClaim:
+            claimName: smokeping-data
+        - name: smokeping-config-custom
+          configMap:
+            name: smokeping-config
+            defaultMode: 0555
