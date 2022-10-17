@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: echo
+  name: echo
+  namespace: echons
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: echo
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: echo
+    spec:
+      containers:
+      - image: ealen/echo-server
+        name: echo
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: echo
+  name: echo
+  namespace: echons
+spec:
+  ports:
+  - name: 80-80
+    port: 80
+  selector:
+    app: echo
+---
+# https://doc.traefik.io/traefik/middlewares/http/forwardauth
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: oauth2-auth
+  namespace: echo
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.echons.svc.cluster.local:4180/oauth2/auth
+    authResponseHeaders:
+      - x-auth-request-email
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: oauth2-errors
+  namespace: echons
+spec:
+  errors:
+    status:
+      - "400-499" # Should maybe be limited to 401...
+    query: "/oauth2/signin?rd={url}"
+    service:
+      name: oauth2-proxy
+      port: 4180
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo
+  namespace: echons
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares:
+      echons-test-errors@kubernetescrd,
+      echons-test-auth@kubernetescrd
+spec:
+  rules:
+  - host: echo.192.168.1.123.nip.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: echo
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-oauth2-proxy
+  namespace: echons
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: echo.192.168.1.123.nip.io
+    http:
+      paths:
+      - backend:
+          service:
+            name: oauth2-proxy
+            port:
+              number: 4180
+        path: /oauth2
+        pathType: Prefix
